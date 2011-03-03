@@ -48,6 +48,8 @@ class ByteArray {
 private:
     char *term;
 
+    
+
     // Held compressed
     char *docs;
     unsigned long docs_offset;
@@ -108,6 +110,32 @@ public:
         printf("Number of documents: %ld\n", num_docs);
     }
 };
+
+
+
+ByteArray **sort_results(ByteArray **terms) {
+   unsigned short start = 0;
+   unsigned long lowest = find_lowest(terms, &start);
+   unsigned short num_lowest = 1;
+
+   ByteArray **results = emalloc(argc * sizeof(ByteArray*));
+   for (int rank = 0; rank < argc; rank++)
+       result[rank] = new ByteArray(longest_list(terms));
+
+   for (unsigned short term = start + 1; start > 0; term++ ) {
+       if (term + start % argsc == 0) {
+           results[num_lowest]->add(lowest);
+           lowest = find_lowest(terms, &start);
+           term = start + 1;
+       }
+
+       if (terms[term]->first_doc == lowest) {
+           num_lowest++;
+           terms[term]->next();
+       }
+   }
+   return results;
+}
 
 /*
 	index_file
