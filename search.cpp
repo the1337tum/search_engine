@@ -16,62 +16,23 @@
 #include "support.hpp"
 
 // Read from RAM
-char *index_string = read_entire_file("index.index");
-long index_length = *reinterpret_cast<long*>(index_string);
-// Read from disk
-FILE *term_file = fopen("term.index", "rb");
-FILE *docs_file = fopen("docs.index", "rb");
-FILE *freqs_file = fopen("freqs.index", "rb");
-
-long inline uncompress_next(char *start, long &offset) {
-    unsigned long long x, b;
-    int shift;
-
-    x = 0, shift = 0;
-    while ((b = start[offset++]) > 127) {
-        x |= (b & 127) << shift;
-        shift += 7;
-    }
-    return x | (b << shift);
-}
-
-//============================================================================
-// Name        : index.cpp
-// Copyright   : BSDNew
-// Description : The indexer
-//============================================================================
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-
-#include <new>
-#include <ftw.h>
-#include <string.h>
-
-#include "support.hpp"
-
-// Read from RAM
-char *char_array = read_entire_file("../index.index");
+char *char_array = read_entire_file("../index/index.index");
 
 unsigned long index_length = *reinterpret_cast<unsigned long*>(char_array);
 char *index_string = char_array + sizeof(long);
 
 // Read from disk
-FILE *term_file = fopen("../term.index", "rb");
-FILE *docs_file = fopen("../docs.index", "rb");
-FILE *freqs_file = fopen("../freqs.index", "rb");
-
-unsigned int query_length;
+FILE *term_file = fopen("../index/term.index", "rb");
+FILE *docs_file = fopen("../index/docs.index", "rb");
+FILE *freqs_file = fopen("../index/freqs.index", "rb");
 
 long inline uncompress_next(char *start, unsigned long &offset, unsigned long length) {
-    if (offset > length) {
-        printf("Array out of bounds\n");
-        return -1;
-    }
+	if (offset >= length) {
+		printf("Array out of bounds\n");
+		return -1;
+	}
 
-    unsigned long long x, b;
+	unsigned long long x, b;
     int shift;
 
     x = 0, shift = 0;
@@ -82,60 +43,52 @@ long inline uncompress_next(char *start, unsigned long &offset, unsigned long le
     return x | (b << shift);
 }
 
-struct ByteArray {
+// To be considered efficient, this is a 'use once' container.
+class ByteArray {
+private:
+    char *term;
 
-    char *term; // /0 terminated
-
-    // Offset pointers are kept uncompressed
-    unsigned long doc_id;
-    unsigned long freq;
-    
-    // The compressed byte arrays
+    // Held compressed
     char *docs;
-    char *docs_offset;
+    unsigned long docs_offset;
     unsigned long docs_length;
 
     char *freqs;
-    char *freqs_offset;
+    unsigned long freqs_offset;
     unsigned long freqs_length;
 
+public:
     ByteArray(char *term,
-        char *docs, unsigned long docs_length,
-        char *freqs, unsigned long freqs_length
+    	char *docs, unsigned long docs_length,
+    	char *freqs, unsigned long freqs_length
     ) {
-        this->term = term;
-        this->docs = docs;
-        this->docs_offset = 0
-        this->docs_length = docs_length;
-        this->freqs = freqs;
-        this->freqs_offset = 0;
-        this->freqs_length = freqs_length;
-
-        this->doc_id = next_doc();
-        this->freq = next_freq();
+    	this->term = term;
+    	this->docs = docs;
+    	this->docs_offset = 0;
+    	this->docs_length = docs_length;
+    	this->freqs = freqs;
+    	this->freqs_offset = 0;
+    	this->freqs_length = freqs_length;
     }
-    
     // for (unsigned long doc_id = term->begin_docs(); term->end_docs(); doc_id = term->next_doc())
     unsigned long inline begin_docs() {
     	docs_offset = 0;
     	return uncompress_next(docs, docs_offset, docs_length);
     }
-    void next_doc() {
-        if (doc_id > 0)
-            doc_id = uncompress_next(docs, offset, docs_length);
+    unsigned long inline next_doc() {
+    	return uncompress_next(docs, docs_offset, docs_length);
     }
     short inline end_docs() {
     	return docs_offset < docs_length;
     }
 
-    // for (unsigned long freq = term->begin_freqs(); term->end_freqs(); doc_id = term->next_freq())
+    // for (unsigned long freq = term->begin_freqs(); term->end_freqs(); freq = term->next_freq())
     unsigned long inline begin_freqs() {
     	freqs_offset = 0;
     	return uncompress_next(freqs, freqs_offset, freqs_length);
     }
-    void next_freq() {
-        if (freq > 0)
-            freq = uncompress_next(freqs, offset, freqs_length);
+    unsigned long inline next_freq() {
+    	return uncompress_next(freqs, freqs_offset, freqs_length);
     }
     short inline end_freqs() {
     	return freqs_offset < freqs_length;
@@ -143,65 +96,53 @@ struct ByteArray {
 
     // map(&function_name)
     void inline map(void (*function)(unsigned long doc_id, unsigned long freq)) {
+
         unsigned long doc_id = 0;
         unsigned long freq = 0;
-        while (doc_id < docs_length && freq < freqs_length)
-            function(uncompress_next(docs, doc_id, docs_length),
-                     uncompress_next(freqs, freq, freqs_length));
+        unsigned long num_docs = 0;
+        while (doc_id < docs_length && freq < freqs_length) {
+        	 function(uncompress_next(docs, doc_id, docs_length),
+        			  uncompress_next(freqs, freq, freqs_length));
+             num_docs++;
+        }
+        printf("Number of documents: %ld\n", num_docs);
     }
 };
 
-unsigned long inline longest_docs_list(ByteArray **terms) {
-    unsigned long longest = terms[0]->docs_length
-    for (unsigned long term = 1; term < query_length; term++)
-        if (terms[term]->docs_length > longest)
-            longest = terms[term]->docs_length;
-    return longest;
-}
+class Accumulator {
+private:
+    unsigned short *acc_init; // query_terms_in_doc
+    unsigned long *acc;       // {freq}
 
-unsigned long inline min_doc(ByteArray **terms) {
-    unsigned long min = terms[0]->doc_id;
-    for (unsigned long term = 1; term < query_length; term++)
-        if (terms[term]->doc_id > 0 && terms[term]->doc_id < min)
-            min = terms[term]->doc_id;
-    return min;
-}
+    unsigned long length;     // num_doc_ids
+    unsigned short width;     // query_length
 
-ByteArray **sort_results(ByteArray **terms) {
-   ByteArray **results = emalloc(query_length * sizeof(ByteArray*));
-   unsigned long longest_list = longest_docs_list(terms); 
-   for (int rank = 0; rank < query_length; rank++)
-       result[rank] = new ByteArray(longest_list);
-   
-   unsigned long *start = new unsigned int(0);
-   unsigned long min_doc = min_doc(terms, start);
-   unsigned long doc_terms = 1;
+public:
+    Accumulator(unsigned long length, unsigned short width) {
+        this->length = length;
+        this->width = width;
+        acc_init = new unsigned long [length];
+        acc = new unsigned long [length * width];
+    }
+    ~Accumulator() {
+        free(acc_init);
+        free(acc);
+    }
 
-    unsigned long barrier = 0;
-    for (unsigned long i = 0; barrier < query_length; i = (i + *start) % query_length) {
-        if (terms[i] == NULL)
-            continue;
-
-        if (*start + i == query_length) {
-            results[doc_terms]->add(lowest);
-            min_doc = min_doc(terms, start, i, terms[i]->docs_length);
-            if (terms[i]->next_doc() < 0) {
-                delete terms[i];
-                barrier++;
-            }
-            continue;
-        }
-        
-        if (terms[i]->first_doc == lowest) {
-            doc_terms++;
-            if (terms[i]->next_doc() < 0) {
-                delete terms[i];
-                barrier++;
-            }
-        }
-   }
-   return results;
-}
+    void add(unsigned long row, unsigned short col, unsigned long value) {
+        if (acc_init[row] == width)
+            return;
+        acc_init[row]++;
+        acc[row*col] = value;
+    }
+    // map(&function_name)
+    // Remember: length of freqs = width of accumulator = query_length
+    void inline map_intersection(void (*function)(unsigned long doc_id, unsigned long *freqs)) {
+        for (unsigned long doc_id = 0; doc_id < length; doc_id++)
+            if (acc_init[doc_id] == width)
+                function(doc_id, acc[doc_id * width]);
+    }
+};
 
 /*
 	index_file
@@ -262,7 +203,7 @@ ByteArray *get_term(char *term) {
 }
 
 void print(unsigned long doc_id, unsigned long freq) {
-	printf("Doc_Id: %ld\t\t Freq %ld\n", doc_id, freq);
+	// printf("Doc_Id: %ld\t\t Freq: %ld\n", doc_id, freq);
 }
 
 int main(int argc, char **argv) {
@@ -272,16 +213,14 @@ int main(int argc, char **argv) {
         printf("Usage:\n\t search {query}");
         exit(EXIT_FAILURE);
     }
+    
+    ByteArray **results = emalloc(argc * sizeof(ByteArray*));
 
-    for (int term = 1; term < argc; term++) {
-    	ByteArray *result = get_term(argv[term]);
-    	if (result != NULL)
-    		result->map(&print);
-    	else
-    		printf("result == NULL\n");
-    }
+    for (int term = 1; term < argc; term++)
+    	results[term-1] = get_term(argv[term]);
+
+
 
     printf("%s\n", "FINISHED");
     return EXIT_SUCCESS;
 }
-
