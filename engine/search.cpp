@@ -27,12 +27,12 @@ FILE *docs_file = fopen("../docs.index", "rb");
 FILE *freqs_file = fopen("../freqs.index", "rb");
 
 long inline uncompress_next(char *start, unsigned long &offset, unsigned long length) {
-	if (offset >= length) {
-		printf("Array out of bounds\n");
-		return -1;
-	}
+    if (offset >= length) {
+        printf("Array out of bounds\n");
+        return -1;
+    }
 
-	unsigned long long x, b;
+    unsigned long long x, b;
     int shift;
 
     x = 0, shift = 0;
@@ -47,8 +47,6 @@ long inline uncompress_next(char *start, unsigned long &offset, unsigned long le
 class ByteArray {
 private:
     char *term;
-
-    
 
     // Held compressed
     char *docs;
