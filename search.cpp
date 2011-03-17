@@ -121,7 +121,7 @@ public:
     Accumulator(unsigned long length, unsigned short width) {
         this->length = length;
         this->width = width;
-        acc_init = new unsigned long [length];
+        acc_init = new unsigned short [length];
         acc = new unsigned long [length * width];
     }
     ~Accumulator() {
