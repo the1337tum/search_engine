@@ -16,15 +16,15 @@
 #include "support.hpp"
 
 // Read from RAM
-char *char_array = read_entire_file("../index.index");
+char *char_array = read_entire_file("../index/index.index");
 
 unsigned long index_length = *reinterpret_cast<unsigned long*>(char_array);
 char *index_string = char_array + sizeof(long);
 
 // Read from disk
-FILE *term_file = fopen("../term.index", "rb");
-FILE *docs_file = fopen("../docs.index", "rb");
-FILE *freqs_file = fopen("../freqs.index", "rb");
+FILE *term_file = fopen("../index/term.index", "rb");
+FILE *docs_file = fopen("../index/docs.index", "rb");
+FILE *freqs_file = fopen("../index/freqs.index", "rb");
 
 long inline uncompress_next(char *start, unsigned long &offset, unsigned long length) {
     if (offset >= length) {

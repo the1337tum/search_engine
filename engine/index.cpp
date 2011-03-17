@@ -213,10 +213,10 @@ ByteArray *freq_file  = new ByteArray(num_docs);
 void write_index() {
 	index_file->truncate();
 	printf("index size: %ld\n", index_file->get_offset());
-	write_to_disk("../index.index", index_file->get_entire_array(), index_file->get_offset());
-	write_to_disk("../term.index",  term_file->get_array(),         term_file->get_offset());
-	write_to_disk("../docs.index",  doc_file->get_array(),          doc_file->get_offset());
-	write_to_disk("../freqs.index", freq_file->get_array(),         freq_file->get_offset());
+	write_to_disk("../index/index.index", index_file->get_entire_array(), index_file->get_offset());
+	write_to_disk("../index/term.index",  term_file->get_array(),         term_file->get_offset());
+	write_to_disk("../index/docs.index",  doc_file->get_array(),          doc_file->get_offset());
+	write_to_disk("../index/freqs.index", freq_file->get_array(),         freq_file->get_offset());
 }
 
 void write_list(BSTNode *term) {
