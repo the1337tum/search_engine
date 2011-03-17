@@ -41,17 +41,7 @@ extern void *erealloc(void *ptr, size_t size);
     
     Given the filename, it will read the entire contents of the file into a char*
     and is terminated by '\0'.
-
-    void test_file(char *filename) {
-    char *entire_array = read_entire_file(filename);
-	unsigned long length = *reinterpret_cast<unsigned long*>(entire_array);
-	printf("entire array: %ld\n", length);
-	entire_array += sizeof(long);
-	unsigned long offset = 0;
-	while (offset < length)
-		printf("%ld\n", uncompress_next(entire_array, offset, length));
-}
- */
+*/
 extern char *read_entire_file(const char *filename);
 
 extern int write_to_disk(const char *filename, const char *buffer, long length);
