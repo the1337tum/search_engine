@@ -110,30 +110,42 @@ public:
 };
 
 
+class Accumulator {
+private:
+    unsigned short *acc_init; // query_terms_in_doc
+    unsigned long *acc;       // {freq}
 
-ByteArray **sort_results(ByteArray **terms) {
-   unsigned short start = 0;
-   unsigned long lowest = find_lowest(terms, &start);
-   unsigned short num_lowest = 1;
+    unsigned long length;     // num_doc_ids
+    unsigned short width;     // query_length
 
-   ByteArray **results = emalloc(argc * sizeof(ByteArray*));
-   for (int rank = 0; rank < argc; rank++)
-       result[rank] = new ByteArray(longest_list(terms));
+public:
+    Accumulator(unsigned long length, unsigned short width) {
+        this->length = length;
+        this->width = width;
+        acc_init = new unsigned long [length];
+        acc = new unsigned long [length * width];
+    }
+    ~Accumulator() {
+        delete [] acc_init;
+        delete [] acc;
+    }
 
-   for (unsigned short term = start + 1; start > 0; term++ ) {
-       if (term + start % argsc == 0) {
-           results[num_lowest]->add(lowest);
-           lowest = find_lowest(terms, &start);
-           term = start + 1;
-       }
-
-       if (terms[term]->first_doc == lowest) {
-           num_lowest++;
-           terms[term]->next();
-       }
-   }
-   return results;
-}
+    void add(unsigned long row, unsigned short col, unsigned long value) {
+        if (acc_init[row] == width)
+            return;
+        
+        acc_init[row]++;
+        acc[row*col] = value;
+    }
+    
+    // map(&function_name)
+    // Remember: length of freqs = width of accumulator = query_length
+    void inline map_intersection(void (*function)(unsigned long doc_id, unsigned long *freqs)) {
+        for (unsigned long doc_id = 0; doc_id < length; doc_id++)
+            if (acc_init[doc_id] == width)
+                function(doc_id, acc[doc_id * width]);
+    }
+};
 
 /*
 	index_file
