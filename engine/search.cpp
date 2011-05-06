@@ -4,16 +4,19 @@
 // Description : The indexer
 //============================================================================
 
+#include <new>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 
-#include <new>
 #include <ftw.h>
+#include <vector>
 #include <string.h>
 
 #include "support.hpp"
+
+using namespace std {
 
 // Read from RAM
 char *char_array = read_entire_file("../index/index.index");
@@ -25,6 +28,22 @@ char *index_string = char_array + sizeof(long);
 FILE *term_file = fopen("../index/term.index", "rb");
 FILE *docs_file = fopen("../index/docs.index", "rb");
 FILE *freqs_file = fopen("../index/freqs.index", "rb");
+
+
+struct ByteArray {
+    char *term;
+    Vector<unsigned long> freqs(freqs_length);
+    Vector<unsigned long> docs(docs_length);
+
+    ByteArray(char *term,
+              Vector<unsigned long> freqs,
+              Vector<unsigned long> docs
+    ) {
+    	this->term = term;
+    	this->docs = docs;
+    	this->freqs = freqs;
+    }
+};
 
 long inline uncompress_next(char *start, unsigned long &offset, unsigned long length) {
     if (offset >= length) {
@@ -43,109 +62,26 @@ long inline uncompress_next(char *start, unsigned long &offset, unsigned long le
     return x | (b << shift);
 }
 
-// To be considered efficient, this is a 'use once' container.
-class ByteArray {
-private:
-    char *term;
+int merge_union(unsigned long *a, unsigned long a_len, unsigned long *b, unsigned long b_len) {
+    unsigned long merge_len = 0;
+    unsigned long i = 0;
+    unsigned long j = 0;
 
-    // Held compressed
-    char *docs;
-    unsigned long docs_offset;
-    unsigned long docs_length;
-
-    char *freqs;
-    unsigned long freqs_offset;
-    unsigned long freqs_length;
-
-public:
-    ByteArray(char *term,
-    	char *docs, unsigned long docs_length,
-    	char *freqs, unsigned long freqs_length
-    ) {
-    	this->term = term;
-    	this->docs = docs;
-    	this->docs_offset = 0;
-    	this->docs_length = docs_length;
-    	this->freqs = freqs;
-    	this->freqs_offset = 0;
-    	this->freqs_length = freqs_length;
-    }
-    // for (unsigned long doc_id = term->begin_docs(); term->end_docs(); doc_id = term->next_doc())
-    unsigned long inline begin_docs() {
-    	docs_offset = 0;
-    	return uncompress_next(docs, docs_offset, docs_length);
-    }
-    unsigned long inline next_doc() {
-    	return uncompress_next(docs, docs_offset, docs_length);
-    }
-    short inline end_docs() {
-    	return docs_offset < docs_length;
-    }
-
-    // for (unsigned long freq = term->begin_freqs(); term->end_freqs(); doc_id = term->next_freq())
-    unsigned long inline begin_freqs() {
-    	freqs_offset = 0;
-    	return uncompress_next(freqs, freqs_offset, freqs_length);
-    }
-    unsigned long inline next_freq() {
-    	return uncompress_next(freqs, freqs_offset, freqs_length);
-    }
-    short inline end_freqs() {
-    	return freqs_offset < freqs_length;
-    }
-
-    // map(&function_name)
-    void inline map(void (*function)(unsigned long doc_id, unsigned long freq)) {
-
-        unsigned long doc_id = 0;
-        unsigned long freq = 0;
-        unsigned long num_docs = 0;
-        while (doc_id < docs_length && freq < freqs_length) {
-        	 function(uncompress_next(docs, doc_id, docs_length),
-        			  uncompress_next(freqs, freq, freqs_length));
-             num_docs++;
+    while (i < a_len && j < b_len) {
+        if (a[i] < b[j]) {
+            i++;
+        } else
+        if (a[i] > b[j]) {
+            j++;
+        } else {
+            a[merge_len] = s[i];
+            merge_len++;
+            i++;
+            j++;
         }
-        printf("Number of documents: %ld\n", num_docs);
     }
-};
-
-
-class Accumulator {
-private:
-    unsigned short *acc_init; // query_terms_in_doc
-    unsigned long *acc;       // {freq}
-
-    unsigned long length;     // num_doc_ids
-    unsigned short width;     // query_length
-
-public:
-    Accumulator(unsigned long length, unsigned short width) {
-        this->length = length;
-        this->width = width;
-        acc_init = new unsigned long [length];
-        acc = new unsigned long [length * width];
-    }
-    ~Accumulator() {
-        delete [] acc_init;
-        delete [] acc;
-    }
-
-    void add(unsigned long row, unsigned short col, unsigned long value) {
-        if (acc_init[row] == width)
-            return;
-        
-        acc_init[row]++;
-        acc[row*col] = value;
-    }
-    
-    // map(&function_name)
-    // Remember: length of freqs = width of accumulator = query_length
-    void inline map_intersection(void (*function)(unsigned long doc_id, unsigned long *freqs)) {
-        for (unsigned long doc_id = 0; doc_id < length; doc_id++)
-            if (acc_init[doc_id] == width)
-                function(doc_id, acc[doc_id * width]);
-    }
-};
+    return merge_len;
+}
 
 /*
 	index_file
@@ -197,34 +133,55 @@ ByteArray *get_term(char *term) {
 				char *freqs_string = new char [freqs_length];
 				fseek(freqs_file, start, SEEK_SET);
 				fread(freqs_string, freqs_length, 1, freqs_file);
+                
+                // Write postings out
+                offset = 0;
+                Vector<unsigned long> docs(docs_length); // will be *at least* compressed size
 
-			    return new ByteArray(term, docs_string, docs_length, freqs_string, freqs_length);
+                offset = 0;
+                Vector<unsigned long> freqs(freqs_length); // will be *at least* compressed size
+                for (long freq = uncompress_next(freqs_string, offset, freqs_length);
+                     freq != -1;
+                     freq = uncompress_next(freqs_string, offset, freqs_length)) {
+                    freqs.push_back(freq);
+                }
+
+			    return new Term(term, docs, freqs);
 			}
 		}
 	}
 	return NULL;
 }
 
-void print(unsigned long doc_id, unsigned long freq) {
-	printf("Doc_Id: %ld\t\t Freq: %ld\n", doc_id, freq);
-}
-
 int main(int argc, char **argv) {
-	printf("entire_array: %ld\n", index_length);
+    unsigned long *intersection;
+    unsigned long len;
 
     if (argc == 0) {
         printf("Usage:\n\t search {query}");
         exit(EXIT_FAILURE);
     }
+    
+    Term *term = get_term(argv[1]);
+    len = term->docs->size;
+    intersection = new unsigned long [len];
+    for (unsigned long i = 0; i < len; i++)
+        term->push_back(term->docs[i]);
 
-    for (int term = 1; term < argc; term++) {
-    	ByteArray *result = get_term(argv[term]);
-    	if (result != NULL)
-    		result->map(&print);
-    	else
-    		printf("result == NULL\n");
+    for (unsigned long term = 2; term < argc; term++) {
+    	Term rv = get_term(argv[term]);
+        for (unsigned long i = 0; i < result->docs->size; i++)
+            len = merge_union(intersection, len, &(rv->docs[0]), rv->docs->size);
     }
+    
+    unsigned long *working = new unsigned long [len];    
+    merge_sort(intersection, working, len);
+    
+    lseek
+    for (int rv = 0; rv < len; rv++)
+        printf("Document: WSJ%ld", );
 
-    printf("%s\n", "FINISHED");
     return EXIT_SUCCESS;
 }
+
+} // end namespace

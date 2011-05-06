@@ -20,6 +20,7 @@
 #include <ftw.h>
 #include <string.h>
 
+#include "parse.hpp"
 #include "support.hpp"
 
 #define HTABLE_SIZE 100003
@@ -119,8 +120,7 @@ struct BSTNode {
     unsigned long last_freq;
 
     BSTNode(char *word, unsigned long doc_id) {
-    	term = new char [strlen(word)+1];
-    	strcpy(term, word);
+    	term = word;
 
         left = NULL;
         right = NULL;
@@ -167,39 +167,73 @@ void add_term(char *term, unsigned long doc_id, BSTNode *&terms) {
     }
 }
 
-void inline parse_document(char *doc, unsigned long doc_id) {
-    char *term = strtok(doc, " \t\n,.-"); // I'm aware this is no substitute for a decent parser
-    while (term != NULL) {
-        add_term(term, doc_id, terms[rjhash(term, strlen(term), HTABLE_SIZE) % HTABLE_SIZE]);
-        term = strtok(NULL, " \t\n,.-");
+#define STACK_SIZE 10
+#define TOKEN_SIZE 10
+char stack[STACK_SIZE][TOKEN_SIZE];
+int stack_ptr = 0;
+int next_is_docno = 0;
+ByteArray *doc_ids;
+
+void begin_indexing() {
+    doc_ids = new ByteArray(HTABLE_SIZE);
+}
+
+void end_indexing() {
+    return; 
+}
+
+// This function (and everything it stands for) disgusts me.
+void word(char const *word) {
+    if (next_is_docno) {
+        char *tmp = new char [strlen(word)+1];
+        int i = 0;
+        for (int c = 0; c < strlen(word); c++)
+            if (isdigit(word[c]))
+                tmp[i++] = word[c];
+
+        doc_ids->add(atoi(tmp));
+        delete [] tmp;
+        next_is_docno = 0;
+    } else {
+        char *term = new char [strlen(word)+1];
+        strcpy(term, word);
+	    add_term(term, num_docs, terms[rjhash(term, strlen(term), HTABLE_SIZE) % HTABLE_SIZE]);
     }
 }
 
-void inline parse_collection(char *collection) {
-    char *end;
-    char *start = strstr(collection, "<DOC>");
-    while (start != NULL) {
-        start += 5;      // strlen("<DOC>")
-        end = strstr(start, "</DOC>");
+void start_tag(char const *tag) {
+    if (strlen(tag)+1 > TOKEN_SIZE)
+        printf("Token larger than max size\n");
+    else
+        strcpy(stack[++stack_ptr], tag);
+}
+
+int inline match(char const *first, char const *secound) {
+   for (int i = 0; i < strlen(first); i++)
+        if (first[i] != secound[i])
+            return 0;
+    return 1;
+}
+
+void end_tag(char const *tag) {
+    if (match(tag,stack[stack_ptr])) {
+        if (match(tag, "DOC"))
+ 	       num_docs++;
+        else if (match(tag, "DOCNO"))
+            next_is_docno = 1; // what a discusting hack...
         
-        if (*end == '\0')
-        	return;      // end of collection
-        else
-        	*end = '\0'; // end of document
-        
-        parse_document(start, num_docs++);
-        start = strstr(end+1, "<DOC>");
+        stack_ptr--;
+    } else {
+        printf("Tag mismatch\n");
     }
 }
 
-static int read_collection(const char *fpath, const struct stat *sb, int typeflag) {
-    if (typeflag == FTW_F) {
-        char *collection = read_entire_file(fpath);
-        if (collection != NULL) {
+static int read_collection(const char *filename, const struct stat *sb, int typeflag) {
+    FILE *collection;
+    if (typeflag == FTW_F)
+        if ((collection = fopen(filename, "rb")) != NULL)
         	parse_collection(collection);
-        	delete [] collection;
-        }
-    }
+    
     return 0;
 }
 
